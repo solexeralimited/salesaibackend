@@ -100,12 +100,18 @@ router.post('/whatsapp', async (req, res) => {
       conv = result.rows[0];
     }
 
-    // Save inbound message (ON CONFLICT DO NOTHING handles WhatsApp retries)
-    await query(`
-      INSERT INTO messages (conversation_id, company_id, direction, sender_type, content, channel, external_message_id)
-      VALUES ($1,$2,'inbound','customer',$3,'whatsapp',$4)
-      ON CONFLICT DO NOTHING
-    `, [conv.id, company.id, text, externalId]);
+    // Save inbound message
+    console.log(`Saving inbound message: conv=${conv.id} company=${company.id} text="${text}" extId=${externalId}`);
+    try {
+      const insertResult = await query(`
+        INSERT INTO messages (conversation_id, company_id, direction, sender_type, content, channel, external_message_id)
+        VALUES ($1,$2,'inbound','customer',$3,'whatsapp',$4)
+        RETURNING id
+      `, [conv.id, company.id, text, externalId]);
+      console.log(`Inbound message saved with id=${insertResult.rows[0]?.id}`);
+    } catch (insertErr) {
+      console.error(`Inbound INSERT failed: ${insertErr.message}`);
+    }
 
     await query('UPDATE conversations SET last_message_at = NOW() WHERE id = $1', [conv.id]);
     await query(
