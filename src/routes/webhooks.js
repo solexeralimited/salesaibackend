@@ -1,5 +1,4 @@
 const express = require('express');
-const crypto = require('crypto');
 const { query } = require('../db');
 const { generateAIReply } = require('../services/aiService');
 const { sendWhatsApp } = require('../services/whatsappService');
@@ -27,30 +26,66 @@ router.post('/whatsapp', async (req, res) => {
 
   try {
     const body = JSON.parse(req.body.toString());
+    console.log('WhatsApp webhook received:', JSON.stringify(body).substring(0, 300));
+
     const entry = body.entry?.[0];
     const changes = entry?.changes?.[0];
     const value = changes?.value;
-    if (!value?.messages?.length) return;
+
+    if (!value?.messages?.length) {
+      console.log('No messages in webhook payload');
+      return;
+    }
 
     const message = value.messages[0];
-    const phoneNumber = message.from; // E.164 format
+    const phoneNumber = message.from; // WhatsApp sends without +, e.g. 64273767460
     const text = message.text?.body || '';
     const externalId = message.id;
     const phoneNumberId = value.metadata?.phone_number_id;
+
+    console.log(`Inbound WhatsApp from ${phoneNumber}: "${text}"`);
 
     // Find company by WhatsApp phone number ID
     const { rows: [company] } = await query(
       'SELECT * FROM companies WHERE whatsapp_phone_number_id = $1',
       [phoneNumberId]
     );
-    if (!company) return console.error('No company found for phone_number_id:', phoneNumberId);
+    if (!company) {
+      console.error('No company found for phone_number_id:', phoneNumberId);
+      return;
+    }
 
-    // Find lead by phone number
-    const { rows: [lead] } = await query(
-      'SELECT * FROM leads WHERE company_id = $1 AND phone = $2',
-      [company.id, `+${phoneNumber}`]
-    );
-    if (!lead) return console.log('No lead found for phone:', phoneNumber);
+    // Try multiple phone formats to find the lead
+    const phoneFormats = [
+      phoneNumber,                          // 64273767460
+      `+${phoneNumber}`,                   // +64273767460
+      phoneNumber.replace(/^64/, '0'),     // 0273767460 (NZ local)
+      phoneNumber.replace(/^91/, '0'),     // 0XXXXXXXXXX (India local)
+    ];
+
+    let lead = null;
+    for (const fmt of phoneFormats) {
+      const { rows } = await query(
+        'SELECT * FROM leads WHERE company_id = $1 AND phone = $2',
+        [company.id, fmt]
+      );
+      if (rows[0]) { lead = rows[0]; break; }
+    }
+
+    // If no lead found, create one automatically from inbound
+    if (!lead) {
+      console.log(`No lead found for phone ${phoneNumber} — creating new lead`);
+      const { rows: [newLead] } = await query(`
+        INSERT INTO leads (company_id, name, phone, source, stage)
+        VALUES ($1, $2, $3, 'whatsapp_inbound', 'replied') RETURNING *
+      `, [company.id, `WhatsApp ${phoneNumber}`, `+${phoneNumber}`]);
+      lead = newLead;
+
+      await query(
+        'INSERT INTO conversations (lead_id, company_id, channel) VALUES ($1,$2,$3)',
+        [lead.id, company.id, 'whatsapp']
+      );
+    }
 
     // Find or create conversation
     let { rows: [conv] } = await query(
@@ -65,13 +100,20 @@ router.post('/whatsapp', async (req, res) => {
       conv = result.rows[0];
     }
 
-    // Save inbound message
+    // Save inbound message (ON CONFLICT DO NOTHING handles WhatsApp retries)
     await query(`
       INSERT INTO messages (conversation_id, company_id, direction, sender_type, content, channel, external_message_id)
       VALUES ($1,$2,'inbound','customer',$3,'whatsapp',$4)
+      ON CONFLICT DO NOTHING
     `, [conv.id, company.id, text, externalId]);
 
     await query('UPDATE conversations SET last_message_at = NOW() WHERE id = $1', [conv.id]);
+    await query(
+      `UPDATE leads SET stage = 'replied', updated_at = NOW() WHERE id = $1 AND stage = 'contacted'`,
+      [lead.id]
+    );
+
+    console.log(`Saved inbound message from ${lead.name}`);
 
     // Update interest score
     await calculateScore(lead, company.id);
@@ -82,22 +124,30 @@ router.post('/whatsapp', async (req, res) => {
         'SELECT direction, sender_type, content FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC LIMIT 20',
         [conv.id]
       );
-      const aiReply = await generateAIReply({ ...conv, lead_name: lead.name, interest_score: lead.interest_score }, history, company.id);
+
+      const aiReply = await generateAIReply(
+        { ...conv, lead_name: lead.name, interest_score: lead.interest_score },
+        history,
+        company.id
+      );
 
       await query(`
         INSERT INTO messages (conversation_id, company_id, direction, sender_type, content, channel)
         VALUES ($1,$2,'outbound','ai',$3,'whatsapp')
       `, [conv.id, company.id, aiReply]);
 
-      await sendWhatsApp(`+${phoneNumber}`, aiReply, company.id);
+      await query('UPDATE conversations SET last_message_at = NOW() WHERE id = $1', [conv.id]);
 
-      // Check escalation threshold
+      await sendWhatsApp(`+${phoneNumber}`, aiReply, company.id);
+      console.log(`AI replied to ${lead.name}: ${aiReply.substring(0, 60)}`);
+
+      // Notify if score is below escalation threshold
       if (lead.interest_score < company.ai_escalation_threshold) {
         await notifySlack(company, lead, `Score dropped to ${lead.interest_score} — escalation triggered`);
       }
     }
   } catch (err) {
-    console.error('WhatsApp webhook error:', err);
+    console.error('WhatsApp webhook error:', err.message, err.stack);
   }
 });
 
@@ -105,9 +155,8 @@ router.post('/whatsapp', async (req, res) => {
 router.post('/email', async (req, res) => {
   res.sendStatus(200);
   try {
-    const { from, subject, text, to } = req.body;
+    const { from, subject, text } = req.body;
     console.log('Email inbound from:', from, 'subject:', subject);
-    // Implementation mirrors WhatsApp handler but for email channel
   } catch (err) {
     console.error('Email webhook error:', err);
   }
