@@ -27,7 +27,7 @@ router.post('/', requireRole('admin', 'consultant'), async (req, res, next) => {
     const { rows: [wf] } = await query(
       `INSERT INTO workflows (company_id, name, description, trigger_type, trigger_config, nodes, edges, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [req.companyId, name, description, trigger_type, trigger_config || {}, nodes || [], edges || [], req.user.id]
+      [req.companyId, name, description, trigger_type, JSON.stringify(trigger_config || {}), JSON.stringify(nodes || []), JSON.stringify(edges || []), req.user.id]
     );
     res.status(201).json(wf);
   } catch (err) { next(err); }
@@ -43,7 +43,7 @@ router.patch('/:id', requireRole('admin', 'consultant'), async (req, res, next) 
         trigger_config=COALESCE($7,trigger_config), nodes=COALESCE($8,nodes),
         edges=COALESCE($9,edges), updated_at=NOW()
       WHERE id=$1 AND company_id=$2 RETURNING *
-    `, [req.params.id, req.companyId, name, description, status, trigger_type, trigger_config, nodes, edges]);
+    `, [req.params.id, req.companyId, name, description, status, trigger_type, trigger_config != null ? JSON.stringify(trigger_config) : undefined, nodes != null ? JSON.stringify(nodes) : undefined, edges != null ? JSON.stringify(edges) : undefined]);
     if (!rows[0]) return res.status(404).json({ error: 'Workflow not found' });
     res.json(rows[0]);
   } catch (err) { next(err); }
