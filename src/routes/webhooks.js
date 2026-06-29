@@ -82,7 +82,7 @@ router.post('/whatsapp', async (req, res) => {
       lead = newLead;
 
       await query(
-        'INSERT INTO conversations (lead_id, company_id, channel) VALUES ($1,$2,$3)',
+        'INSERT INTO conversations (lead_id, company_id, channel, ai_active) VALUES ($1,$2,$3,true)',
         [lead.id, company.id, 'whatsapp']
       );
     }
@@ -94,7 +94,7 @@ router.post('/whatsapp', async (req, res) => {
     );
     if (!conv) {
       const result = await query(
-        'INSERT INTO conversations (lead_id, company_id, channel) VALUES ($1,$2,$3) RETURNING *',
+        'INSERT INTO conversations (lead_id, company_id, channel, ai_active) VALUES ($1,$2,$3,true) RETURNING *',
         [lead.id, company.id, 'whatsapp']
       );
       conv = result.rows[0];
