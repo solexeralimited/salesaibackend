@@ -125,6 +125,7 @@ router.post('/whatsapp', async (req, res) => {
     await calculateScore(lead, company.id);
 
     // AI auto-reply if AI mode is active
+    console.log(`conv.ai_active=${conv.ai_active} for conv=${conv.id}`);
     if (conv.ai_active) {
       const { rows: history } = await query(
         'SELECT direction, sender_type, content FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC LIMIT 20',
