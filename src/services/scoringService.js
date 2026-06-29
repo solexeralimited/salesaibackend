@@ -21,7 +21,7 @@ async function calculateScore(lead, companyId) {
   const { rows: [msgStats] } = await query(`
     SELECT
       COUNT(*) FILTER (WHERE direction='inbound') as inbound_count,
-      MIN(created_at) FILTER (WHERE direction='inbound') as first_inbound
+      MIN(m.created_at) FILTER (WHERE direction='inbound') as first_inbound
     FROM messages m
     JOIN conversations c ON m.conversation_id = c.id
     WHERE c.lead_id = $1
