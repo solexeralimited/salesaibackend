@@ -39,11 +39,12 @@ router.post('/whatsapp', async (req, res) => {
 
     const message = value.messages[0];
     const phoneNumber = message.from; // WhatsApp sends without +, e.g. 64273767460
-    const text = message.text?.body || '';
+    const isButtonReply = message.type === 'button';
+    const text = isButtonReply ? (message.button?.text || '') : (message.text?.body || '');
     const externalId = message.id;
     const phoneNumberId = value.metadata?.phone_number_id;
 
-    console.log(`Inbound WhatsApp from ${phoneNumber}: "${text}"`);
+    console.log(`Inbound WhatsApp from ${phoneNumber} (${isButtonReply ? 'button' : 'text'}): "${text}"`);
 
     // Find company by WhatsApp phone number ID
     const { rows: [company] } = await query(
@@ -120,6 +121,24 @@ router.post('/whatsapp', async (req, res) => {
     );
 
     console.log(`Saved inbound message from ${lead.name}`);
+
+    // Handle quick reply button actions from the quote_ready template
+    if (isButtonReply) {
+      if (text === 'Accept your quote') {
+        await query(
+          `UPDATE leads SET stage = 'quote_accepted', updated_at = NOW() WHERE id = $1`,
+          [lead.id]
+        );
+        await notifySlack(company, lead, `Lead accepted their quote via WhatsApp`);
+      } else if (text === 'Book a meeting') {
+        await query(
+          `UPDATE leads SET stage = 'meeting_requested', updated_at = NOW() WHERE id = $1`,
+          [lead.id]
+        );
+        await notifySlack(company, lead, `Lead requested a meeting via WhatsApp`);
+      }
+      // 'Ask questions' falls through to AI handling below
+    }
 
     // Update interest score
     await calculateScore(lead, company.id);
