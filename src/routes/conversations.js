@@ -2,7 +2,7 @@ const express = require('express');
 const { query } = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { generateAIReply } = require('../services/aiService');
-const { sendWhatsApp } = require('../services/whatsappService');
+const { sendWhatsApp, sendWhatsAppTemplate } = require('../services/whatsappService');
 const { sendEmail } = require('../services/emailService');
 const { logAudit } = require('../utils/audit');
 
@@ -113,6 +113,47 @@ router.post('/:id/ai-reply', async (req, res, next) => {
     }
 
     res.json(msg);
+  } catch (err) { next(err); }
+});
+
+// POST /api/conversations/:id/template — send an approved WhatsApp template
+router.post('/:id/template', async (req, res, next) => {
+  try {
+    const { template_name = 'quote_ready' } = req.body;
+
+    const { rows: [conv] } = await query(
+      `SELECT c.*, l.phone, l.name as lead_name
+       FROM conversations c JOIN leads l ON c.lead_id = l.id
+       WHERE c.id = $1 AND c.company_id = $2`,
+      [req.params.id, req.companyId]
+    );
+    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+    if (!conv.phone) return res.status(400).json({ error: 'Lead has no phone number' });
+
+    const { rows: [company] } = await query('SELECT name FROM companies WHERE id = $1', [req.companyId]);
+    const firstName = conv.lead_name.split(' ')[0];
+
+    const components = [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: firstName },
+          { type: 'text', text: company?.name || 'our company' },
+        ],
+      },
+    ];
+
+    await sendWhatsAppTemplate(conv.phone, template_name, components, req.companyId);
+
+    const preview = `Hi ${firstName}, your roofing quotation from ${company?.name || 'our company'} is now ready. [Template: ${template_name}]`;
+    const { rows: [msg] } = await query(`
+      INSERT INTO messages (conversation_id, company_id, direction, sender_type, sender_id, content, channel)
+      VALUES ($1,$2,'outbound','human',$3,$4,'whatsapp') RETURNING *
+    `, [req.params.id, req.companyId, req.user.id, preview]);
+
+    await query('UPDATE conversations SET last_message_at = NOW() WHERE id = $1', [req.params.id]);
+
+    res.status(201).json(msg);
   } catch (err) { next(err); }
 });
 
