@@ -1,5 +1,5 @@
 const { query } = require('../db');
-const { sendWhatsApp } = require('./whatsappService');
+const { sendWhatsApp, sendWhatsAppTemplate } = require('./whatsappService');
 const { sendEmail } = require('./emailService');
 const { notifySlack } = require('./slackService');
 
@@ -35,7 +35,6 @@ async function executeWorkflow(workflow, lead, companyId) {
           if (lead.phone) {
             const msg = (node.config?.message || 'Hello {{name}}').replace('{{name}}', lead.name.split(' ')[0]);
             await sendWhatsApp(lead.phone, msg, companyId);
-            // Save to messages table
             const { rows: [conv] } = await query(
               'SELECT id FROM conversations WHERE lead_id = $1 AND channel = $2 LIMIT 1',
               [lead.id, 'whatsapp']
@@ -49,6 +48,37 @@ async function executeWorkflow(workflow, lead, companyId) {
             }
           }
           break;
+
+        case 'send_whatsapp_template': {
+          if (lead.phone) {
+            const { rows: [company] } = await query('SELECT name FROM companies WHERE id = $1', [companyId]);
+            const firstName = lead.name.split(' ')[0];
+            const templateName = node.config?.template_name || 'quote_ready';
+            const components = [
+              {
+                type: 'body',
+                parameters: [
+                  { type: 'text', text: firstName },
+                  { type: 'text', text: company?.name || 'our company' },
+                ],
+              },
+            ];
+            await sendWhatsAppTemplate(lead.phone, templateName, components, companyId);
+            const { rows: [conv] } = await query(
+              'SELECT id FROM conversations WHERE lead_id = $1 AND channel = $2 LIMIT 1',
+              [lead.id, 'whatsapp']
+            );
+            if (conv) {
+              const preview = `Hi ${firstName}, your roofing quotation from ${company?.name || 'our company'} is now ready. [Template: ${templateName}]`;
+              await query(
+                `INSERT INTO messages (conversation_id, company_id, direction, sender_type, content, channel)
+                 VALUES ($1,$2,'outbound','ai',$3,'whatsapp')`,
+                [conv.id, companyId, preview]
+              );
+            }
+          }
+          break;
+        }
 
         case 'send_email':
           if (lead.email) {
