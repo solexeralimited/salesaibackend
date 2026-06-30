@@ -64,9 +64,6 @@ router.post('/:id/messages', async (req, res, next) => {
     );
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
 
-    // Disable AI when human sends
-    await query('UPDATE conversations SET ai_active = FALSE WHERE id = $1', [req.params.id]);
-
     const { rows: [msg] } = await query(`
       INSERT INTO messages (conversation_id, company_id, direction, sender_type, sender_id, content, channel)
       VALUES ($1,$2,'outbound','human',$3,$4,$5) RETURNING *
