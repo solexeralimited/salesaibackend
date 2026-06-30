@@ -2,7 +2,7 @@ const express = require('express');
 const { query } = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { generateAIReply } = require('../services/aiService');
-const { sendWhatsApp } = require('../services/whatsappService');
+const { sendWhatsApp, sendWhatsAppTemplate } = require('../services/whatsappService');
 const { sendEmail } = require('../services/emailService');
 const { logAudit } = require('../utils/audit');
 
@@ -98,6 +98,31 @@ router.post('/:id/ai-reply', async (req, res, next) => {
       [req.params.id]
     );
 
+    const hasInbound = history.some(m => m.direction === 'inbound');
+
+    // No inbound message yet — use approved template instead of free-form
+    if (!hasInbound && conv.channel === 'whatsapp' && conv.phone) {
+      const { rows: [company] } = await query('SELECT name FROM companies WHERE id = $1', [req.companyId]);
+      const firstName = conv.lead_name.split(' ')[0];
+      const components = [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: firstName },
+            { type: 'text', text: company?.name || 'our company' },
+          ],
+        },
+      ];
+      await sendWhatsAppTemplate(conv.phone, 'quote_ready', components, req.companyId);
+      const preview = `Hi ${firstName}, your roofing quotation from ${company?.name || 'our company'} is now ready. [Template: quote_ready]`;
+      const { rows: [msg] } = await query(`
+        INSERT INTO messages (conversation_id, company_id, direction, sender_type, content, channel)
+        VALUES ($1,$2,'outbound','ai',$3,'whatsapp') RETURNING *
+      `, [req.params.id, req.companyId, preview]);
+      await query('UPDATE conversations SET last_message_at = NOW() WHERE id = $1', [req.params.id]);
+      return res.json(msg);
+    }
+
     const aiReply = await generateAIReply(conv, history, req.companyId);
 
     const { rows: [msg] } = await query(`
@@ -107,7 +132,6 @@ router.post('/:id/ai-reply', async (req, res, next) => {
 
     await query('UPDATE conversations SET last_message_at = NOW() WHERE id = $1', [req.params.id]);
 
-    // Send the AI reply via the channel
     if (conv.channel === 'whatsapp' && conv.phone) {
       await sendWhatsApp(conv.phone, aiReply, req.companyId).catch(e => console.error('WhatsApp send failed:', e));
     }
