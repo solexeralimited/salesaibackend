@@ -46,11 +46,16 @@ router.post('/whatsapp', async (req, res) => {
 
     console.log(`Inbound WhatsApp from ${phoneNumber} (${isButtonReply ? 'button' : 'text'}): "${text}"`);
 
-    // Find company by WhatsApp phone number ID
-    const { rows: [company] } = await query(
+    // Find company by WhatsApp phone number ID, falling back to env var match
+    let { rows: [company] } = await query(
       'SELECT * FROM companies WHERE whatsapp_phone_number_id = $1',
       [phoneNumberId]
     );
+    if (!company && phoneNumberId === process.env.WHATSAPP_PHONE_NUMBER_ID) {
+      // DB column not yet populated but env var matches — use first company
+      const { rows } = await query('SELECT * FROM companies LIMIT 1');
+      company = rows[0];
+    }
     if (!company) {
       console.error('No company found for phone_number_id:', phoneNumberId);
       return;
