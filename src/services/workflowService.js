@@ -33,18 +33,46 @@ async function executeWorkflow(workflow, lead, companyId) {
       switch (node.type) {
         case 'send_whatsapp':
           if (lead.phone) {
-            const msg = (node.config?.message || 'Hello {{name}}').replace('{{name}}', lead.name.split(' ')[0]);
-            await sendWhatsApp(lead.phone, msg, companyId);
             const { rows: [conv] } = await query(
               'SELECT id FROM conversations WHERE lead_id = $1 AND channel = $2 LIMIT 1',
               [lead.id, 'whatsapp']
             );
-            if (conv) {
-              await query(
-                `INSERT INTO messages (conversation_id, company_id, direction, sender_type, content, channel)
-                 VALUES ($1,$2,'outbound','ai',$3,'whatsapp')`,
-                [conv.id, companyId, msg]
-              );
+            // Check 24h window — use template if no recent inbound message
+            const { rows: [lastInbound] } = conv ? await query(
+              `SELECT created_at FROM messages WHERE conversation_id = $1 AND direction = 'inbound' ORDER BY created_at DESC LIMIT 1`,
+              [conv.id]
+            ) : { rows: [] };
+            const withinWindow = lastInbound && (Date.now() - new Date(lastInbound.created_at).getTime()) < 24 * 60 * 60 * 1000;
+
+            if (!withinWindow) {
+              // Cold lead — send approved template instead of free-form
+              const { rows: [company] } = await query('SELECT name FROM companies WHERE id = $1', [companyId]);
+              const firstName = lead.name.split(' ')[0];
+              const components = [
+                { type: 'body', parameters: [
+                  { type: 'text', text: firstName },
+                  { type: 'text', text: company?.name || 'our company' },
+                ]},
+              ];
+              await sendWhatsAppTemplate(lead.phone, 'quote_ready', components, companyId);
+              const preview = `Hi ${firstName}, your roofing quotation from ${company?.name || 'our company'} is now ready. [Template: quote_ready]`;
+              if (conv) {
+                await query(
+                  `INSERT INTO messages (conversation_id, company_id, direction, sender_type, content, channel)
+                   VALUES ($1,$2,'outbound','ai',$3,'whatsapp')`,
+                  [conv.id, companyId, preview]
+                );
+              }
+            } else {
+              const msg = (node.config?.message || 'Hello {{name}}').replace('{{name}}', lead.name.split(' ')[0]);
+              await sendWhatsApp(lead.phone, msg, companyId);
+              if (conv) {
+                await query(
+                  `INSERT INTO messages (conversation_id, company_id, direction, sender_type, content, channel)
+                   VALUES ($1,$2,'outbound','ai',$3,'whatsapp')`,
+                  [conv.id, companyId, msg]
+                );
+              }
             }
           }
           break;
