@@ -98,10 +98,14 @@ router.post('/:id/ai-reply', async (req, res, next) => {
       [req.params.id]
     );
 
-    const hasInbound = history.some(m => m.direction === 'inbound');
+    const { rows: [lastInbound] } = await query(
+      `SELECT created_at FROM messages WHERE conversation_id = $1 AND direction = 'inbound' ORDER BY created_at DESC LIMIT 1`,
+      [req.params.id]
+    );
+    const withinWindow = lastInbound && (Date.now() - new Date(lastInbound.created_at).getTime()) < 24 * 60 * 60 * 1000;
 
-    // No inbound message yet — use approved template instead of free-form
-    if (!hasInbound && conv.channel === 'whatsapp' && conv.phone) {
+    // No inbound ever, or last inbound was >24h ago — use approved template instead of free-form
+    if (!withinWindow && conv.channel === 'whatsapp' && conv.phone) {
       const { rows: [company] } = await query('SELECT name FROM companies WHERE id = $1', [req.companyId]);
       const firstName = conv.lead_name.split(' ')[0];
       const components = [
