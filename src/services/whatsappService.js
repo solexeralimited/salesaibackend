@@ -44,7 +44,7 @@ async function sendWhatsAppTemplate(to, templateName, components, companyId) {
         messaging_product: 'whatsapp',
         to: to.replace('+', ''),
         type: 'template',
-        template: { name: templateName, language: { code: 'en' }, components },
+        template: { name: templateName, language: { code: 'en_US' }, components },
       },
       { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
     );
