@@ -1,6 +1,7 @@
 const express = require('express');
 const { query } = require('../db');
 const { authenticate } = require('../middleware/auth');
+const { sendWhatsApp } = require('../services/whatsappService');
 
 const router = express.Router();
 router.use(authenticate);
@@ -36,7 +37,22 @@ router.post('/meetings', async (req, res, next) => {
     `, [lead_id, req.companyId, assigned_to || req.user.id, title || 'Roofing consultation', scheduled_at, duration_minutes, notes, meeting_url]);
 
     // Update lead stage to 'meeting'
-    await query(`UPDATE leads SET stage = 'meeting', updated_at = NOW() WHERE id = $1 AND company_id = $2`, [lead_id, req.companyId]);
+    const { rows: [lead] } = await query(
+      `UPDATE leads SET stage = 'meeting', updated_at = NOW() WHERE id = $1 AND company_id = $2 RETURNING phone`,
+      [lead_id, req.companyId]
+    );
+
+    // Best-effort confirmation — this endpoint had no lead-facing
+    // notification at all before, unlike the Calendly-driven booking flow.
+    if (lead?.phone) {
+      const { rows: [company] } = await query('SELECT timezone FROM companies WHERE id = $1', [req.companyId]);
+      const label = new Date(scheduled_at).toLocaleString('en-US', {
+        weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+        timeZone: company?.timezone || 'Pacific/Auckland',
+      });
+      await sendWhatsApp(lead.phone, `You're booked in for ${label}! Looking forward to it.`, req.companyId)
+        .catch(e => console.error('Meeting confirmation WhatsApp send failed:', e.message));
+    }
 
     res.status(201).json(meeting);
   } catch (err) { next(err); }
