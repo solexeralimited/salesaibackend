@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { pool } = require('./index');
+const { DEFAULT_WORKFLOWS } = require('./defaultWorkflows');
 
 const migrations = [
   // ── Companies (tenants) ─────────────────────────────────────────────────────
@@ -203,6 +204,25 @@ async function migrate() {
       await client.query(sql);
       console.log(`  ✓ ${preview}`);
     }
+
+    const { rows: companies } = await client.query('SELECT id FROM companies');
+    for (const { id: companyId } of companies) {
+      for (const wf of DEFAULT_WORKFLOWS) {
+        const { rows: existing } = await client.query(
+          'SELECT id FROM workflows WHERE company_id = $1 AND trigger_type = $2',
+          [companyId, wf.trigger_type]
+        );
+        if (existing.length === 0) {
+          await client.query(
+            `INSERT INTO workflows (company_id, name, description, status, trigger_type, nodes)
+             VALUES ($1,$2,$3,'active',$4,$5::jsonb)`,
+            [companyId, wf.name, wf.description, wf.trigger_type, JSON.stringify(wf.nodes)]
+          );
+          console.log(`  ✓ Backfilled default workflow "${wf.name}" for company ${companyId}`);
+        }
+      }
+    }
+
     console.log('\n✅ All migrations complete.\n');
   } catch (err) {
     console.error('\n❌ Migration failed:', err.message);
