@@ -4,6 +4,7 @@ const { generateAIReply } = require('../services/aiService');
 const { sendWhatsApp } = require('../services/whatsappService');
 const { calculateScore } = require('../services/scoringService');
 const { notifySlack } = require('../services/slackService');
+const { triggerWorkflow } = require('../services/workflowService');
 
 const router = express.Router();
 
@@ -135,13 +136,13 @@ router.post('/whatsapp', async (req, res) => {
            WHERE id = (SELECT id FROM quotes WHERE lead_id = $1 AND status IN ('pending','sent') ORDER BY created_at DESC LIMIT 1)`,
           [lead.id]
         );
-        await notifySlack(company, lead, `Lead accepted their quote via WhatsApp`);
+        await triggerWorkflow('quote_accepted', lead, company.id);
       } else if (text === 'Book a meeting') {
         await query(
           `UPDATE leads SET stage = 'meeting', updated_at = NOW() WHERE id = $1`,
           [lead.id]
         );
-        await notifySlack(company, lead, `Lead requested a meeting via WhatsApp`);
+        await triggerWorkflow('meeting_requested', lead, company.id);
       }
       // 'Ask questions' falls through to AI handling below
     }

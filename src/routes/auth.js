@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const { query } = require('../db');
 const { authenticate } = require('../middleware/auth');
+const { DEFAULT_WORKFLOWS } = require('../db/defaultWorkflows');
 
 const router = express.Router();
 
@@ -77,6 +78,14 @@ router.post('/register', [
       `INSERT INTO users (company_id, email, password_hash, name, role) VALUES ($1,$2,$3,$4,'admin') RETURNING *`,
       [company.id, email, hash, name]
     );
+
+    for (const wf of DEFAULT_WORKFLOWS) {
+      await query(
+        `INSERT INTO workflows (company_id, name, description, status, trigger_type, nodes)
+         VALUES ($1,$2,$3,'active',$4,$5::jsonb)`,
+        [company.id, wf.name, wf.description, wf.trigger_type, JSON.stringify(wf.nodes)]
+      );
+    }
 
     const token = signToken(user.id);
     res.status(201).json({
