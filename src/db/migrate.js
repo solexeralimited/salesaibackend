@@ -185,6 +185,15 @@ const migrations = [
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`,
 
+  // ── Calendly integration ────────────────────────────────────────────────────────
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS calendly_api_token TEXT`,
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS calendly_event_type_uri TEXT`,
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS calendly_scheduling_url TEXT`,
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS calendly_webhook_signing_key TEXT`,
+  `ALTER TABLE meetings ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual' CHECK (source IN ('manual','whatsapp','calendly'))`,
+  `ALTER TABLE meetings ADD COLUMN IF NOT EXISTS calendly_event_uri TEXT`,
+  `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS pending_slots JSONB`,
+
   // ── Indexes ───────────────────────────────────────────────────────────────────
   `CREATE INDEX IF NOT EXISTS idx_leads_company ON leads(company_id)`,
   `CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(company_id, stage)`,
