@@ -17,6 +17,12 @@ const DEFAULT_WORKFLOWS = [
     trigger_type: 'meeting_requested',
     nodes: [{ type: 'notify_slack', config: { message: 'Lead requested a meeting via WhatsApp' } }],
   },
+  {
+    name: 'Meeting booked (default)',
+    description: 'Notifies the team when a lead confirms a meeting slot (WhatsApp or Calendly)',
+    trigger_type: 'meeting_booked',
+    nodes: [{ type: 'notify_slack', config: { message: 'Lead booked a meeting' } }],
+  },
 ];
 
 module.exports = { DEFAULT_WORKFLOWS };

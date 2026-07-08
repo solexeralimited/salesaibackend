@@ -55,4 +55,39 @@ async function sendWhatsAppTemplate(to, templateName, components, companyId) {
   }
 }
 
-module.exports = { sendWhatsApp, sendWhatsAppTemplate };
+// Interactive reply buttons (session window only — no template approval
+// needed). WhatsApp caps this at 3 buttons, each title max 20 characters.
+async function sendWhatsAppInteractiveButtons(to, bodyText, buttons, companyId) {
+  const { phoneNumberId, accessToken } = await getWhatsAppCredentials(companyId);
+  if (!phoneNumberId || !accessToken) {
+    console.warn('WhatsApp not configured for company', companyId);
+    return null;
+  }
+  try {
+    const res = await axios.post(
+      `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: to.replace('+', ''),
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text: bodyText },
+          action: {
+            buttons: buttons.slice(0, 3).map(b => ({
+              type: 'reply',
+              reply: { id: b.id, title: b.title.substring(0, 20) },
+            })),
+          },
+        },
+      },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+    return res.data;
+  } catch (err) {
+    console.error('WhatsApp interactive message error:', err.response?.data || err.message);
+    throw err;
+  }
+}
+
+module.exports = { sendWhatsApp, sendWhatsAppTemplate, sendWhatsAppInteractiveButtons };

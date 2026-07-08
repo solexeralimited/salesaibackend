@@ -13,6 +13,7 @@ const knowledgeBaseRoutes = require('./routes/knowledgeBase');
 const calendarRoutes = require('./routes/calendar');
 const webhookRoutes = require('./routes/webhooks');
 const companyRoutes = require('./routes/companies');
+const quoteRoutes = require('./routes/quotes');
 const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -46,6 +47,7 @@ app.use('/api/knowledge-base', knowledgeBaseRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/companies', companyRoutes);
+app.use('/api/quotes', quoteRoutes);
 
 // Global error handler
 app.use(errorHandler);
