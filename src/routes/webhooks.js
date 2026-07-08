@@ -131,13 +131,14 @@ router.post('/whatsapp', async (req, res) => {
     if (isButtonReply) {
       if (text === 'Accept your quote') {
         await query(
-          `UPDATE leads SET stage = 'quote_accepted', updated_at = NOW() WHERE id = $1`,
+          `UPDATE quotes SET status = 'accepted', updated_at = NOW()
+           WHERE id = (SELECT id FROM quotes WHERE lead_id = $1 AND status IN ('pending','sent') ORDER BY created_at DESC LIMIT 1)`,
           [lead.id]
         );
         await notifySlack(company, lead, `Lead accepted their quote via WhatsApp`);
       } else if (text === 'Book a meeting') {
         await query(
-          `UPDATE leads SET stage = 'meeting_requested', updated_at = NOW() WHERE id = $1`,
+          `UPDATE leads SET stage = 'meeting', updated_at = NOW() WHERE id = $1`,
           [lead.id]
         );
         await notifySlack(company, lead, `Lead requested a meeting via WhatsApp`);
