@@ -107,14 +107,21 @@ router.post('/whatsapp', async (req, res) => {
       conv = result.rows[0];
     }
 
+    // For button replies, store a self-describing message so both the AI
+    // and the human-facing conversation view show it was a quick-reply tap,
+    // not free-form text — otherwise the AI sees e.g. "Ask questions" as if
+    // it were the customer's entire message, with no context that it came
+    // from the quote_ready template's button menu.
+    const messageContent = isButtonReply ? `[Tapped quick-reply: "${text}"]` : text;
+
     // Save inbound message
-    console.log(`Saving inbound message: conv=${conv.id} company=${company.id} text="${text}" extId=${externalId}`);
+    console.log(`Saving inbound message: conv=${conv.id} company=${company.id} text="${messageContent}" extId=${externalId}`);
     try {
       const insertResult = await query(`
         INSERT INTO messages (conversation_id, company_id, direction, sender_type, content, channel, external_message_id)
         VALUES ($1,$2,'inbound','customer',$3,'whatsapp',$4)
         RETURNING id
-      `, [conv.id, company.id, text, externalId]);
+      `, [conv.id, company.id, messageContent, externalId]);
       console.log(`Inbound message saved with id=${insertResult.rows[0]?.id}`);
     } catch (insertErr) {
       console.error(`Inbound INSERT failed: ${insertErr.message}`);
@@ -137,6 +144,15 @@ router.post('/whatsapp', async (req, res) => {
           [lead.id]
         );
         await triggerWorkflow('quote_accepted', lead, company.id);
+        // Hand ownership to the lead's assigned rep so someone is
+        // accountable for closing — doesn't touch ai_active, so the AI can
+        // still handle any follow-up questions in the meantime.
+        if (lead.assigned_to) {
+          await query(
+            `UPDATE conversations SET escalated_to = $2, escalated_at = NOW() WHERE id = $1`,
+            [conv.id, lead.assigned_to]
+          );
+        }
       } else if (text === 'Book a meeting') {
         await query(
           `UPDATE leads SET stage = 'meeting', updated_at = NOW() WHERE id = $1`,
