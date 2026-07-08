@@ -14,6 +14,8 @@ router.get('/me', async (req, res, next) => {
     const safe = { ...rows[0] };
     if (safe.whatsapp_access_token) safe.whatsapp_access_token = '***';
     if (safe.sendgrid_api_key) safe.sendgrid_api_key = '***';
+    if (safe.calendly_api_token) safe.calendly_api_token = '***';
+    if (safe.calendly_webhook_signing_key) safe.calendly_webhook_signing_key = '***';
     res.json(safe);
   } catch (err) { next(err); }
 });
@@ -26,6 +28,7 @@ router.patch('/me', requireRole('admin'), async (req, res, next) => {
       'ai_escalation_threshold','ai_max_messages','business_hours',
       'from_email','whatsapp_phone_number_id','whatsapp_access_token',
       'sendgrid_api_key','slack_webhook_url',
+      'calendly_api_token','calendly_event_type_uri','calendly_scheduling_url','calendly_webhook_signing_key',
     ];
     const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
     if (!Object.keys(updates).length) return res.status(400).json({ error: 'No valid fields' });
